@@ -25,7 +25,7 @@ st.markdown("""
         width: 100%;
     }
     </style>
-    """, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
 # Title
 st.title("📚 Exam Question Predictor")
