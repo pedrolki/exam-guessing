@@ -1,13 +1,16 @@
 import streamlit as st
-import google.generativeai as genai
-from datetime import datetime
+from transformers import AutoModelForSeq2SeqGeneration, AutoTokenizer
+import torch
 
 # Configure page
-st.set_page_config(page_title="Exam Prediction AI", page_icon="📚")
+st.set_page_config(page_title="Exam Question Predictor", page_icon="📚")
 
-# Initialize Gemini-pro
-genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-model = genai.GenerativeModel('gemini-pro')
+@st.cache_resource
+def load_model():
+    model_name = "google/flan-t5-base"  # Free and good for this task
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForSeq2SeqGeneration.from_pretrained(model_name)
+    return tokenizer, model
 
 # Add custom CSS
 st.markdown("""
@@ -25,58 +28,69 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # Title
-st.title("📚 Exam Prediction AI")
-st.markdown("Predict potential exam questions based on previous exams and lesson content.")
+st.title("📚 Exam Question Predictor")
+st.markdown("Generate potential exam questions based on previous exams and lesson content.")
 
-# Input sections
-with st.container():
-    previous_exams = st.text_area(
-        "Previous Exam Questions",
-        placeholder="Enter previous exam questions here...",
-        help="Enter questions from previous exams to help the AI understand the professor's style"
-    )
+try:
+    tokenizer, model = load_model()
+    
+    # Input sections
+    with st.container():
+        previous_exams = st.text_area(
+            "Previous Exam Questions",
+            placeholder="Enter previous exam questions here...",
+            help="Enter questions from previous exams to help understand the professor's style"
+        )
 
-    lesson_content = st.text_area(
-        "Lesson Content",
-        placeholder="Enter current lesson content here...",
-        help="Enter the content of the current lessons that might be tested"
-    )
+        lesson_content = st.text_area(
+            "Lesson Content",
+            placeholder="Enter current lesson content here...",
+            help="Enter the content of the current lessons that might be tested"
+        )
 
-    if st.button("🔮 Predict Next Exam Questions", use_container_width=True):
-        if not previous_exams or not lesson_content:
-            st.error("Please fill in both fields")
-        else:
-            with st.spinner("Generating predictions..."):
-                prompt = f"""
-                Based on the following previous exam questions and lesson content, predict possible questions for the next exam.
-                
-                Previous Exam Questions:
-                {previous_exams}
-                
-                Lesson Content:
-                {lesson_content}
-                
-                Generate 5 potential exam questions that could appear on the next exam. Format them as a numbered list.
-                For each question:
-                1. Make it similar in style to the previous questions
-                2. Ensure it tests understanding of the lesson content
-                3. Match the difficulty level of previous questions
-                
-                Return ONLY the questions, numbered 1-5.
-                """
-                
-                try:
-                    response = model.generate_content(prompt)
+        if st.button("🔮 Generate Exam Questions", use_container_width=True):
+            if not previous_exams or not lesson_content:
+                st.error("Please fill in both fields")
+            else:
+                with st.spinner("Generating questions..."):
+                    prompt = f"""
+                    Task: Generate 5 exam questions based on:
+                    Previous exam style: {previous_exams}
+                    Current lesson content: {lesson_content}
                     
-                    st.success("✨ Predicted Questions Generated!")
+                    Generate 5 exam questions that match the previous style and test the current content.
+                    """
+                    
+                    # Generate questions
+                    inputs = tokenizer(prompt, return_tensors="pt", max_length=1024, truncation=True)
+                    outputs = model.generate(
+                        inputs.input_ids,
+                        max_length=512,
+                        num_return_sequences=1,
+                        temperature=0.7,
+                        do_sample=True,
+                        num_beams=4
+                    )
+                    
+                    predicted_questions = tokenizer.decode(outputs[0], skip_special_tokens=True)
+                    
+                    # Display results
+                    st.success("✨ Questions Generated!")
                     st.markdown("### 📝 Potential Exam Questions:")
-                    st.markdown(response.text)
                     
-                    # Add timestamp
-                    st.caption(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-                except Exception as e:
-                    st.error(f"An error occurred: {str(e)}")
+                    # Format the questions
+                    questions = predicted_questions.split("\n")
+                    for i, question in enumerate(questions, 1):
+                        if question.strip():
+                            st.markdown(f"{i}. {question.strip()}")
+                    
+                    st.caption("Note: These are AI-generated predictions. Actual exam questions may vary.")
 
-# Footer
+except Exception as e:
+    st.error(f"An error occurred: {str(e)}")
+    st.info("Try refreshing the page if the model fails to load.")
+
+# Requirements info
 st.markdown("---")
-st.markdown("*Note: This is an AI prediction tool. The actual exam questions may vary.*")
+st.markdown("""
+### 📋 Requirements
